@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=src /opt/homebrew/bin/python3.11:*)",
+      "Bash(/opt/homebrew/bin/python3.11 -m pytest:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

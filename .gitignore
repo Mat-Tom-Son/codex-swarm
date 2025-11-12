@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+.DS_Store
+*.pyc
+.venv/
+.env
+
+# Tooling
+.ruff_cache/
+.coverage
+
+# App data
+data/
+artifacts/
+workspaces/
