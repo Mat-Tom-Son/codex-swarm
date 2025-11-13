@@ -177,3 +177,105 @@ async def stream_run_events(
             await run_events.unsubscribe(run_id, queue)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("/{run_id}/cancel")
+async def cancel_run(
+    run_id: str,
+    session: AsyncSession = Depends(db_session),
+):
+    """Cancel a running execution."""
+    run = await repositories.runs.get_run(session, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    if run.status not in ["queued", "running"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel run with status: {run.status}",
+        )
+
+    # Request cancellation from the codex tool
+    from ...runner.codex_tool import request_cancellation
+
+    killed = request_cancellation(run_id)
+
+    # Update status to cancelled
+    await repositories.runs.update_run_status(session, run_id, "cancelled")
+    await session.commit()
+
+    # Publish cancellation event
+    await run_events.publish(
+        run_id,
+        {
+            "type": "cancelled",
+            "run_id": run_id,
+            "process_killed": killed,
+        },
+    )
+
+    return {"status": "cancelled", "process_killed": killed}
+
+
+@router.get("/{run_id}/workspace/files")
+async def list_workspace_files(
+    run_id: str,
+    session: AsyncSession = Depends(db_session),
+):
+    """List files in run workspace."""
+    from ...services import run_service
+
+    run = await repositories.runs.get_run(session, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    workspace = run_service._workspace_path(run.project_id, run.id)
+
+    if not workspace.exists():
+        return {"files": [], "workspace": str(workspace)}
+
+    files = []
+    for path in workspace.rglob("*"):
+        if path.is_file():
+            rel_path = path.relative_to(workspace)
+            # Skip .git internals
+            if str(rel_path).startswith(".git/"):
+                continue
+
+            files.append({
+                "path": str(rel_path),
+                "size": path.stat().st_size,
+                "modified": path.stat().st_mtime,
+            })
+
+    return {
+        "files": sorted(files, key=lambda f: f["path"]),
+        "workspace": str(workspace),
+        "total_files": len(files),
+    }
+
+
+@router.get("/{run_id}/workspace/files/{file_path:path}")
+async def download_workspace_file(
+    run_id: str,
+    file_path: str,
+    session: AsyncSession = Depends(db_session),
+):
+    """Download a specific file from workspace."""
+    from ...services import run_service
+
+    run = await repositories.runs.get_run(session, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    workspace = run_service._workspace_path(run.project_id, run.id)
+    full_path = (workspace / file_path).resolve()
+
+    # Security check: ensure path is within workspace
+    if not full_path.is_relative_to(workspace):
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(full_path)

@@ -217,6 +217,20 @@ def watch(args: argparse.Namespace) -> None:
                                 f"📝 [cyan]Git diff:[/cyan] {files_changed} files changed"
                             )
 
+                    elif event_type == "cancelled":
+                        console.print("🛑 [red]Run cancelled[/red]")
+
+                    elif event_type == "workspace_summary":
+                        total = data.get("total_files", 0)
+                        files = data.get("files", [])
+                        console.print(f"\n📁 [cyan]Workspace files:[/cyan] {total} total")
+                        if files:
+                            for f in files[:10]:
+                                size_kb = f.get("size", 0) / 1024
+                                console.print(f"   [dim]{f.get('path')} ({size_kb:.1f}KB)[/dim]")
+                            if total > 10:
+                                console.print(f"   [dim]... and {total - 10} more files[/dim]")
+
                     else:
                         # Unknown event type, show as dim JSON
                         console.print(f"[dim]• {event_type}: {json.dumps(data)}[/dim]")
@@ -227,6 +241,33 @@ def watch(args: argparse.Namespace) -> None:
     except Exception as exc:
         console.print()
         console.print(f"[red]Error: {exc}[/red]")
+
+
+def cancel(args: argparse.Namespace) -> None:
+    """Cancel a running execution."""
+    url = f"{args.api_url}/runs/{args.run_id}/cancel"
+
+    with console.status("[bold yellow]Requesting cancellation..."):
+        with httpx.Client(timeout=10) as client:
+            try:
+                resp = client.post(url)
+                resp.raise_for_status()
+                result = resp.json()
+
+                console.print()
+                if result.get("process_killed"):
+                    console.print("🛑 [green]Run cancelled and process terminated[/green]")
+                else:
+                    console.print("🛑 [yellow]Cancellation requested (process may have already finished)[/yellow]")
+                console.print(f"   Run ID: {args.run_id}")
+                console.print()
+
+            except httpx.HTTPStatusError as exc:
+                console.print()
+                console.print(f"[red]Failed to cancel run: {exc.response.json().get('detail', str(exc))}[/red]")
+            except Exception as exc:
+                console.print()
+                console.print(f"[red]Error: {exc}[/red]")
 
 
 def open_ui(args: argparse.Namespace) -> None:
@@ -311,6 +352,11 @@ def build_parser() -> argparse.ArgumentParser:
     watch_p.add_argument("run_id")
     watch_p.add_argument("--api-url", default=DEFAULT_API)
     watch_p.set_defaults(func=watch)
+
+    cancel_p = sub.add_parser("cancel", help="Cancel a running execution")
+    cancel_p.add_argument("run_id")
+    cancel_p.add_argument("--api-url", default=DEFAULT_API)
+    cancel_p.set_defaults(func=cancel)
 
     ui_p = sub.add_parser("ui", help="Open the browser console for a run")
     ui_p.add_argument("run_id")

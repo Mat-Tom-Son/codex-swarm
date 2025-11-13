@@ -170,6 +170,27 @@ def _prepare_workspace(
     return workspace, cloned_entries, source_found
 
 
+def _collect_workspace_files(workspace: Path) -> list[dict[str, Any]]:
+    """Collect a summary of files in the workspace."""
+    files = []
+    if not workspace.exists():
+        return files
+
+    for path in workspace.rglob("*"):
+        if path.is_file():
+            rel_path = path.relative_to(workspace)
+            # Skip .git internals
+            if str(rel_path).startswith(".git/"):
+                continue
+
+            files.append({
+                "path": str(rel_path),
+                "size": path.stat().st_size,
+            })
+
+    return sorted(files, key=lambda f: f["path"])
+
+
 async def launch_run(
     session: AsyncSession,
     run: Run,
@@ -310,6 +331,10 @@ async def launch_run(
 
     # Progress: Complete (100%)
     elapsed = time.time() - start_time
+
+    # Collect workspace file summary
+    workspace_files = _collect_workspace_files(workspace)
+
     await run_events.publish(
         run.id,
         {
@@ -320,6 +345,18 @@ async def launch_run(
             "elapsed": elapsed,
         },
     )
+
+    # Publish workspace summary
+    if workspace_files:
+        await run_events.publish(
+            run.id,
+            {
+                "type": "workspace_summary",
+                "run_id": run.id,
+                "files": workspace_files[:20],  # First 20 files
+                "total_files": len(workspace_files),
+            },
+        )
 
     await _update_status(session, run.id, "succeeded")
     return runner_response
