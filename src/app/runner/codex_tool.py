@@ -3,11 +3,44 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from ..config import settings
+
+# Global registry of active processes for cancellation
+_active_processes: dict[str, subprocess.Popen] = {}
+_process_lock = threading.Lock()
+_cancellation_flags: set[str] = set()
+_cancellation_lock = threading.Lock()
+
+
+def request_cancellation(run_id: str) -> bool:
+    """Request cancellation of a running execution."""
+    with _cancellation_lock:
+        _cancellation_flags.add(run_id)
+
+    # Try to terminate the process if it exists
+    with _process_lock:
+        proc = _active_processes.get(run_id)
+        if proc and proc.poll() is None:  # Process is still running
+            proc.terminate()
+            return True
+    return False
+
+
+def _is_cancelled(run_id: str) -> bool:
+    """Check if cancellation has been requested for this run."""
+    with _cancellation_lock:
+        return run_id in _cancellation_flags
+
+
+def _clear_cancellation(run_id: str) -> None:
+    """Clear cancellation flag after run completes."""
+    with _cancellation_lock:
+        _cancellation_flags.discard(run_id)
 
 
 def _build_codex_env() -> dict[str, str]:
@@ -144,24 +177,46 @@ def codex_exec(
             assert proc.stdout is not None
             assert proc.stderr is not None
 
-            for line in proc.stdout:
-                artifact_file.write(line)
-                try:
-                    evt = json.loads(line)
-                except json.JSONDecodeError:
-                    notes.append("jsonl-parse-error")
-                    continue
-                evt_type = evt.get("type") or evt.get("event")
-                if evt_type == "file.changed" and evt.get("path"):
-                    files.add(evt["path"])
-                if evt_type in {"run.failed", "error"}:
-                    ok = False
-                if evt_type == "command.result":
-                    notes.append(f"cmd:{evt.get('cmd')} exit:{evt.get('exit_code')}")
+            # Register process for cancellation
+            with _process_lock:
+                _active_processes[run_id] = proc
 
-            proc.stdout.close()
-            stderr_data = proc.stderr.read()
-            proc.wait()
+            try:
+                for line in proc.stdout:
+                    # Check for cancellation
+                    if _is_cancelled(run_id):
+                        notes.append("cancelled-by-user")
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                        ok = False
+                        break
+
+                    artifact_file.write(line)
+                    try:
+                        evt = json.loads(line)
+                    except json.JSONDecodeError:
+                        notes.append("jsonl-parse-error")
+                        continue
+                    evt_type = evt.get("type") or evt.get("event")
+                    if evt_type == "file.changed" and evt.get("path"):
+                        files.add(evt["path"])
+                    if evt_type in {"run.failed", "error"}:
+                        ok = False
+                    if evt_type == "command.result":
+                        notes.append(f"cmd:{evt.get('cmd')} exit:{evt.get('exit_code')}")
+
+                proc.stdout.close()
+                stderr_data = proc.stderr.read()
+                proc.wait()
+            finally:
+                # Unregister process
+                with _process_lock:
+                    _active_processes.pop(run_id, None)
+                # Clear cancellation flag
+                _clear_cancellation(run_id)
 
         if proc.returncode != 0:
             ok = False
