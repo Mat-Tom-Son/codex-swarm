@@ -1,12 +1,67 @@
-# Codex-Swarm 🧠
+# Codex-Swarm 🧠✨
 
-> **A self-learning automation system powered by OpenAI Swarm + Anthropic Codex that remembers what works.**
+> **A self-learning automation system powered by OpenAI Swarm + Anthropic Codex with a professional UX that remembers what works.**
 
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Rich CLI](https://img.shields.io/badge/cli-rich%20formatted-purple)]()
 
-Codex-Swarm is a domain-aware agent memory system that learns from successful automation workflows and automatically reuses proven patterns in future tasks. Think of it as giving your AI agent a memory that improves with every task.
+Codex-Swarm is a domain-aware agent memory system that learns from successful automation workflows and automatically reuses proven patterns in future tasks. Now with **beautiful CLI**, **real-time progress tracking**, and **powerful management tools**!
+
+---
+
+## ✨ What's New: Enhanced UX & Reliability
+
+### 🎨 Beautiful CLI Experience
+```
+🚀 Run Created
+━━━━━━━━━━━━━━━━━━━━━━
+Run ID      run-abc123
+Project     demo
+Status      queued
+Workspace   workspaces/demo/run-abc123
+
+📡 Live Monitor
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Streaming events for run run-abc123
+
+⏳ [  0%] Preparing workspace...
+⏳ [ 30%] Running Codex agent on your task...
+🤖 I'll help you with that task...
+🔧 codex_exec result
+   Modified: test.py, app.py
+⏳ [ 85%] Learning patterns from this run...
+✅ Status: Succeeded
+⏳ [100%] Run completed in 23.4s
+
+📁 Workspace files: 8 total
+   test.py (2.3KB)
+   results.csv (12.1KB)
+   ...
+```
+
+### 🎯 New Features
+
+#### Better Feedback
+- ✅ **Progress Tracking** - See exactly what's happening (0% → 100%)
+- ✅ **Helpful Errors** - Get recovery suggestions when things fail
+- ✅ **Rich CLI** - Beautiful colors, icons, tables, and panels
+- ✅ **Animated UI** - Web console with live progress bars
+
+#### Control & Visibility
+- 🛑 **Run Cancellation** - Stop tasks mid-execution
+- 📁 **Workspace Browser** - List and download files via API
+- 📊 **File Summaries** - See what was created automatically
+- 🔍 **Better Observability** - Enhanced event streaming
+
+#### Maintenance Tools
+- 🧹 **Smart Cleanup** - Delete old workspaces by age
+- 📈 **Disk Stats** - Monitor space usage
+- 📝 **Run Templates** - Quick start for common tasks
+- 🔄 **Dry-Run Mode** - Preview before deleting
+
+---
 
 ## 🎯 What Makes This Different?
 
@@ -15,23 +70,25 @@ Most AI automation tools forget everything after each run. Codex-Swarm:
 ✅ **Learns patterns** from successful runs and automatically applies them to similar tasks
 ✅ **Works across domains** - code, research, writing, data analysis, document processing
 ✅ **Maintains context** through workspace cloning and git integration
-✅ **Streams live telemetry** so you can watch your automation in real-time
+✅ **Beautiful UX** with progress tracking, helpful errors, and rich formatting
+✅ **Full control** - cancel runs, browse workspaces, manage disk space
 ✅ **Runs locally** with optional offline modes for demos and testing
 
 ### Real-World Example
 
 ```bash
-# First time: System learns your SOP conversion workflow
-./run.sh crossrun run "Convert SOP-001.docx to new format per template.md" \
+# Use a template for quick tasks
+./run.sh crossrun run --template test
+
+# Or provide custom instructions
+./run.sh crossrun run "Convert SOP-001.docx to new format" \
   --task-type=document_processing
 
-# Subsequent runs: Pattern is automatically reused
+# Pattern is automatically learned and can be reused
 ./run.sh crossrun run "Convert all SOPs in ./old-sops/" \
   --task-type=document_processing \
   --reference-run-id=<previous-run>
 ```
-
-The system extracts the successful workflow (copy → transform → validate), identifies variables (file format, template path), and injects this pattern into future runs automatically.
 
 ---
 
@@ -56,7 +113,7 @@ cd codex-swarm
 # 3. Initialize database
 ./run.sh crossrun migrate
 
-# 4. Configure environment (create .env file)
+# 4. Configure environment
 cat > .env <<EOF
 OPENAI_API_KEY=sk-your-key-here
 # Optional: CROSS_RUN_FAKE_CODEX=1 for offline demos
@@ -70,19 +127,94 @@ EOF
 ### Your First Run
 
 ```bash
-# In a new terminal, launch a task
+# In a new terminal, try a template
+./run.sh crossrun run --template test
+
+# Or use custom instructions
 ./run.sh crossrun run "create a hello.txt file with greeting"
 
-# Watch it execute live, then check the workspace
-ls workspaces/demo/run-*
+# Check disk usage
+./run.sh crossrun stats
+
+# List available templates
+./run.sh crossrun templates
 ```
 
 **What just happened?**
 - Swarm planned the task
 - Codex executed it in an isolated workspace
+- Real-time progress was displayed with percentages
 - Steps were recorded to SQLite
 - Artifacts were saved (execution logs, git diffs)
 - A reusable pattern was extracted
+- Workspace files were automatically summarized
+
+---
+
+## 🎨 CLI Commands
+
+### Running Tasks
+
+```bash
+# Use a template (quick start!)
+./run.sh crossrun run --template test
+./run.sh crossrun run -t lint
+
+# Custom instructions
+./run.sh crossrun run "your instructions here"
+
+# With options
+./run.sh crossrun run "analyze security" \
+  --task-type=code \
+  --project-id=my-project \
+  --reference-run-id=<pattern-to-reuse>
+```
+
+### Available Templates
+
+```bash
+./run.sh crossrun templates
+```
+
+| Template | Description |
+|----------|-------------|
+| `test` | Run test suite |
+| `lint` | Run linter and fix issues |
+| `format` | Format code |
+| `doc` | Generate documentation |
+| `analyze` | Code analysis |
+| `refactor` | Refactor code |
+| `security` | Security scan |
+| `deps` | Update dependencies |
+
+### Monitoring & Control
+
+```bash
+# Watch a run in real-time
+./run.sh crossrun watch <run-id>
+
+# Cancel a running task
+./run.sh crossrun cancel <run-id>
+
+# Open web UI
+./run.sh crossrun ui <run-id>
+```
+
+### Maintenance
+
+```bash
+# Check disk usage
+./run.sh crossrun stats
+
+# Clean up old workspaces (dry-run)
+./run.sh crossrun cleanup --older-than 7 --dry-run
+
+# Actually clean up
+./run.sh crossrun cleanup --older-than 7
+
+# Force cleanup without confirmation
+./run.sh crossrun cleanup --force
+```
 
 ---
 
@@ -101,18 +233,10 @@ Different tasks need different approaches. Codex-Swarm adapts:
 | **Data Analysis** | Python scripts, visualizations, statistics | DataFrames, chart types, statistical methods |
 
 ```bash
-# Research workflow
-./run.sh crossrun run "Research recent ML advances, create summary" \
-  --task-type=research
-
-# Data analysis workflow
-./run.sh crossrun run "Analyze sales_data.csv, create visualizations" \
-  --task-type=data_analysis
-
-# Writing workflow
-./run.sh crossrun run "Write technical blog post about findings" \
-  --task-type=writing \
-  --from-run-id=<analysis-run>  # Continues from same workspace
+# Domain-specific workflows
+./run.sh crossrun run "Research recent ML advances" --task-type=research
+./run.sh crossrun run "Analyze sales_data.csv" --task-type=data_analysis
+./run.sh crossrun run "Write technical blog post" --task-type=writing
 ```
 
 ### 2. **Pattern Memory System**
@@ -147,40 +271,72 @@ Clone entire workspaces (including `.git`) across runs:
 
 ```bash
 # Run 1: Data collection
-run1=$(./run.sh crossrun run "Run simulation, save to results.csv" \
-  --task-type=data_analysis)
+run1=$(./run.sh crossrun run "Run simulation, save to results.csv")
 
 # Run 2: Analysis (same workspace)
 run2=$(./run.sh crossrun run "Analyze results.csv, create charts" \
-  --task-type=data_analysis \
   --from-run-id=$run1)
 
-# Run 3: Report writing (references previous work)
-./run.sh crossrun run "Write report about simulation and analysis" \
-  --task-type=writing \
+# Run 3: Report writing
+./run.sh crossrun run "Write report about simulation" \
   --from-run-id=$run2
 ```
 
-### 4. **Live Streaming & Observability**
+### 4. **Live Progress & Observability**
 
-Watch your automation execute in real-time via Server-Sent Events:
+Watch your automation execute in real-time:
 
 ```bash
-# Terminal-based streaming
+# Terminal-based streaming with rich formatting
 ./run.sh crossrun watch <run-id>
 
-# Browser-based console
+# Browser-based console with animations
 ./run.sh crossrun ui <run-id>
 ```
 
 Every event is captured:
-- Status changes (queued → running → succeeded/failed)
-- Assistant reasoning steps
-- Tool executions with file changes
-- Artifact registrations
-- Git diff summaries
+- ⏳ Progress updates (0% → 100%)
+- 📋 Status changes (queued → running → succeeded/failed)
+- 🤖 Assistant reasoning steps
+- 🔧 Tool executions with file changes
+- 📄 Artifact registrations
+- 📝 Git diff summaries
+- 📁 Workspace file summaries
 
-### 5. **Offline & Demo Modes**
+### 5. **Run Control**
+
+Full control over your executions:
+
+```bash
+# Cancel a running task
+./run.sh crossrun cancel <run-id>
+
+# Browse workspace files via API
+curl http://localhost:5050/runs/<run-id>/workspace/files | jq
+
+# Download specific files
+curl http://localhost:5050/runs/<run-id>/workspace/files/results.txt
+```
+
+### 6. **Smart Maintenance**
+
+Keep your system clean and organized:
+
+```bash
+# Check disk usage
+./run.sh crossrun stats
+
+# Output:
+📊 Disk Usage Statistics
+━━━━━━━━━━━━━━━━━━━━━━━
+Location      Size        Files    Notes
+Workspaces    247.3 MB    342      15 runs
+Artifacts     89.1 MB     45       Execution logs
+Database      2.1 MB      3        SQLite DB
+Total         338.5 MB    390
+```
+
+### 7. **Offline & Demo Modes**
 
 Perfect for testing without external dependencies:
 
@@ -201,8 +357,8 @@ export CROSS_RUN_FAKE_SWARM=1
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      API Service (FastAPI)                  │
-│  Projects • Runs • Patterns • Artifacts • Event Streaming   │
+│                   API Service (FastAPI)                     │
+│  Projects • Runs • Patterns • Control • Event Streaming     │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -210,7 +366,7 @@ export CROSS_RUN_FAKE_SWARM=1
               │  Swarm Runner        │
               │  (OpenAI Swarm)      │
               │  • Pattern Injection │
-              │  • Domain Instructions│
+              │  • Domain Templates  │
               └──────────┬───────────┘
                          │
                          ▼
@@ -219,6 +375,7 @@ export CROSS_RUN_FAKE_SWARM=1
               │  • File Operations   │
               │  • Command Execution │
               │  • JSONL Streaming   │
+              │  • Cancellation      │
               └──────────┬───────────┘
                          │
                          ▼
@@ -227,6 +384,7 @@ export CROSS_RUN_FAKE_SWARM=1
               │  • Isolated Dirs     │
               │  • Git Integration   │
               │  • Artifact Storage  │
+              │  • File Browser      │
               └──────────────────────┘
 ```
 
@@ -234,6 +392,7 @@ export CROSS_RUN_FAKE_SWARM=1
 
 1. **FastAPI API Service** (Port 5050)
    - CRUD for projects/runs/patterns
+   - Run control (cancel, browse files)
    - Orchestrates run lifecycle
    - Persists to SQLite
    - Streams events via SSE
@@ -255,11 +414,106 @@ export CROSS_RUN_FAKE_SWARM=1
    - Optional git repository
    - Workspace cloning support
    - Git diff capture
+   - File browsing API
 
 5. **Event Broker**
    - In-memory pub/sub
    - SSE streaming to clients
    - Real-time progress updates
+   - Rich event formatting
+
+---
+
+## 📡 API Reference
+
+### Core Endpoints
+
+#### Projects
+- `PUT /projects/{id}` - Create/update project
+- `GET /projects` - List all projects
+
+#### Runs
+- `POST /projects/{id}/runs` - Launch new run
+- `GET /runs` - List runs (filterable by project)
+- `GET /runs/{id}` - Get run details
+- `GET /runs/{id}/steps` - Get run transcript
+- `GET /runs/{id}/stream` - Server-Sent Events stream
+- `GET /runs/{id}/diff` - Get git diff summary
+- `POST /runs/{id}/cancel` - Cancel running execution ⭐ NEW!
+
+#### Workspace Files ⭐ NEW!
+- `GET /runs/{id}/workspace/files` - List all workspace files
+- `GET /runs/{id}/workspace/files/{path}` - Download specific file
+
+#### Patterns
+- `GET /patterns/{run_id}` - Get extracted pattern
+
+#### Artifacts
+- `GET /runs/{id}/artifacts` - List artifacts
+- `GET /runs/{id}/artifacts/{artifact_id}/download` - Download artifact file
+
+### Example API Usage
+
+```python
+import httpx
+
+client = httpx.Client(base_url="http://localhost:5050")
+
+# Create project
+client.put("/projects/my-project", json={
+    "id": "my-project",
+    "name": "My Project",
+    "task_type": "code"
+})
+
+# Launch run
+response = client.post("/projects/my-project/runs", json={
+    "project_id": "my-project",
+    "name": "Test run",
+    "instructions": "Run the test suite",
+})
+
+run_id = response.json()["id"]
+
+# Stream events
+with client.stream("GET", f"/runs/{run_id}/stream") as stream:
+    for line in stream.iter_lines():
+        if line.startswith("data:"):
+            event = json.loads(line.removeprefix("data:"))
+            print(event)
+
+# Cancel if needed
+client.post(f"/runs/{run_id}/cancel")
+
+# Browse workspace files
+files = client.get(f"/runs/{run_id}/workspace/files").json()
+print(f"Created {files['total_files']} files")
+```
+
+---
+
+## 🧪 Testing
+
+Run the comprehensive test suite:
+
+```bash
+# All tests
+PYTHONPATH=src python3.11 -m pytest
+
+# Specific test files
+PYTHONPATH=src python3.11 -m pytest tests/test_live_api.py
+PYTHONPATH=src python3.11 -m pytest tests/test_workspace_security.py
+
+# Verbose output
+PYTHONPATH=src python3.11 -m pytest -xvs
+```
+
+Tests include:
+- ✅ Live API integration (boots both services, runs end-to-end workflow)
+- ✅ Workspace security (path traversal prevention)
+- ✅ Pattern extraction across domains
+- ✅ Workspace cloning and git integration
+- ✅ Artifact persistence and retrieval
 
 ---
 
@@ -278,21 +532,6 @@ export CROSS_RUN_FAKE_SWARM=1
 | `CROSS_RUN_ARTIFACTS_ROOT` | Artifacts directory | `./artifacts` |
 | `CROSS_RUN_DATABASE_PATH` | SQLite database path | `./data/crossrun.db` |
 | `PYTHON_BIN` | Python interpreter | `python3.11` |
-
-### Task Types
-
-Configure domain-specific behavior via `--task-type`:
-
-- `code` - Software development (default)
-- `research` - Literature review, citation gathering
-- `writing` - Long-form content creation
-- `data_analysis` - Python analysis, visualization
-- `document_processing` - Batch conversion, formatting
-
-Each task type loads specialized:
-- Pattern extractors (domain-specific variable discovery)
-- Instruction templates (tailored agent behavior)
-- Artifact handling preferences
 
 ---
 
@@ -330,154 +569,22 @@ analysis=$(./run.sh crossrun run \
   --task-type=writing \
   --project-id=crop-study \
   --from-run-id=$analysis
-```
 
-### Batch Document Processing
-
-```bash
-# Process first document, establish pattern
-first_run=$(./run.sh crossrun run \
-  "Convert SOP-001.docx from old format to new format per new_template.md" \
-  --task-type=document_processing \
-  --project-id=sop-migration)
-
-# Apply pattern to remaining documents
-./run.sh crossrun run \
-  "Convert all DOCX files in ./old-sops/ using same transformation" \
-  --task-type=document_processing \
-  --project-id=sop-migration \
-  --reference-run-id=$first_run
+# 3. Browse results
+curl http://localhost:5050/runs/$analysis/workspace/files | jq
 ```
 
 ### Multi-Step Code Development
 
 ```bash
 # Feature development with pattern learning
-./run.sh crossrun run "Add user authentication API endpoint" \
-  --task-type=code \
-  --project-id=my-app
+./run.sh crossrun run --template test --project-id=my-app
 
-# System learns: model → route → tests → run tests pattern
+# Cancel if needed
+./run.sh crossrun cancel <run-id>
 
-# Apply to next feature
-./run.sh crossrun run "Add user profile API endpoint" \
-  --task-type=code \
-  --project-id=my-app \
-  --reference-run-id=<previous-run>
-```
-
----
-
-## 🧪 Testing
-
-Run the comprehensive test suite:
-
-```bash
-# All tests
-PYTHONPATH=src python3.11 -m pytest
-
-# Specific test files
-PYTHONPATH=src python3.11 -m pytest tests/test_live_api.py
-PYTHONPATH=src python3.11 -m pytest tests/test_workspace_security.py
-
-# Verbose output
-PYTHONPATH=src python3.11 -m pytest -xvs
-```
-
-Tests include:
-- ✅ Live API integration (boots both services, runs end-to-end workflow)
-- ✅ Workspace security (path traversal prevention)
-- ✅ Pattern extraction across domains
-- ✅ Workspace cloning and git integration
-- ✅ Artifact persistence and retrieval
-
----
-
-## 📡 API Reference
-
-### Core Endpoints
-
-#### Projects
-- `PUT /projects/{id}` - Create/update project
-- `GET /projects` - List all projects
-
-#### Runs
-- `POST /projects/{id}/runs` - Launch new run
-- `GET /runs` - List runs (filterable by project)
-- `GET /runs/{id}` - Get run details
-- `GET /runs/{id}/steps` - Get run transcript
-- `GET /runs/{id}/stream` - Server-Sent Events stream
-- `GET /runs/{id}/diff` - Get git diff summary
-
-#### Patterns
-- `GET /patterns/{run_id}` - Get extracted pattern
-
-#### Artifacts
-- `GET /runs/{id}/artifacts` - List artifacts
-- `GET /runs/{id}/artifacts/{artifact_id}/download` - Download artifact file
-
-### Example API Usage
-
-```python
-import httpx
-
-client = httpx.Client(base_url="http://localhost:5050")
-
-# Create project
-client.put("/projects/my-research", json={
-    "id": "my-research",
-    "name": "Research Project",
-    "task_type": "research"
-})
-
-# Launch run
-response = client.post("/projects/my-research/runs", json={
-    "project_id": "my-research",
-    "name": "Literature review",
-    "instructions": "Research recent papers on topic X",
-    "reference_run_id": None,  # Optional: reuse pattern
-    "from_run_id": None        # Optional: clone workspace
-})
-
-run_id = response.json()["id"]
-
-# Stream events
-with client.stream("GET", f"/runs/{run_id}/stream") as stream:
-    for line in stream.iter_lines():
-        if line.startswith("data:"):
-            event = json.loads(line.removeprefix("data:"))
-            print(event)
-```
-
----
-
-## 🛠️ CLI Commands
-
-The `./run.sh crossrun` wrapper provides ergonomic commands:
-
-```bash
-# Installation & Setup
-./run.sh crossrun install          # Install Python dependencies
-./run.sh crossrun migrate          # Create/update database schema
-
-# Service Management
-./run.sh crossrun services         # Launch API + Runner
-./run.sh crossrun services --manual # Show commands instead of running
-
-# Running Tasks
-./run.sh crossrun run "instructions" \
-  [--task-type TYPE] \
-  [--project-id ID] \
-  [--reference-run-id ID] \
-  [--from-run-id ID] \
-  [--no-watch]
-
-# Monitoring
-./run.sh crossrun watch <run-id>   # Stream events to terminal
-./run.sh crossrun ui <run-id>      # Open browser console
-
-# Quick Demo
-./run.sh crossrun quickstart       # Install, migrate, run demo
+# Check what was created
+curl http://localhost:5050/runs/<run-id>/workspace/files | jq
 ```
 
 ---
@@ -503,16 +610,16 @@ The `./run.sh crossrun` wrapper provides ergonomic commands:
 
 Contributions are welcome! Here are some ways to help:
 
-### Areas for Improvement
+### Areas for Enhancement
 
-- [ ] **Multi-tool support** - Add executors beyond Codex
-- [ ] **Authentication** - Add API key/OAuth support
-- [ ] **Pattern quality** - LLM-based pattern extraction
-- [ ] **UI enhancements** - Rich artifact viewers, pattern editor
-- [ ] **Workspace optimization** - Snapshot dedupe, compression
-- [ ] **Cross-domain patterns** - Transfer patterns between domains
-- [ ] **Batch operations** - Run multiple tasks in parallel
-- [ ] **Export/import** - Share patterns across instances
+- [ ] Multi-tool support - Add executors beyond Codex
+- [ ] Authentication - Add API key/OAuth support
+- [ ] Pattern quality - LLM-based pattern extraction
+- [ ] UI enhancements - Rich artifact viewers, pattern editor
+- [ ] Workspace optimization - Snapshot dedupe, compression
+- [ ] Cross-domain patterns - Transfer patterns between domains
+- [ ] Batch operations - Run multiple tasks in parallel
+- [ ] Export/import - Share patterns across instances
 
 ### Development Setup
 
@@ -527,15 +634,11 @@ cd codex-swarm
 # Run tests
 PYTHONPATH=src python3.11 -m pytest
 
+# Check disk usage
+./run.sh crossrun stats
+
 # Make changes, add tests, submit PR
 ```
-
-### Guidelines
-
-- Add tests for new features
-- Update documentation
-- Follow existing code style (Ruff, Black)
-- Keep backward compatibility when possible
 
 ---
 
@@ -552,6 +655,7 @@ Built with:
 - [Anthropic Codex](https://docs.claude.com/claude-code) - AI-powered coding assistant
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
 - [SQLAlchemy](https://www.sqlalchemy.org/) - SQL toolkit
+- [Rich](https://rich.readthedocs.io/) - Beautiful CLI formatting
 
 ---
 
@@ -564,6 +668,16 @@ Built with:
 ---
 
 ## 🗺️ Roadmap
+
+### Completed ✅
+- [x] Progress tracking with percentages
+- [x] Rich CLI with colors and icons
+- [x] Run cancellation
+- [x] Workspace file browser
+- [x] Cleanup tools
+- [x] Run templates
+- [x] Disk usage statistics
+- [x] Enhanced error messages
 
 ### Short Term
 - [ ] WebSocket event streaming
@@ -589,6 +703,6 @@ Built with:
 
 **[⭐ Star this repo](https://github.com/Mat-Tom-Son/codex-swarm)** if you find it useful!
 
-Made with ❤️ by the community
+Made with ❤️ and 🤖 by the community
 
 </div>
