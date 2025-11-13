@@ -177,6 +177,21 @@ async def launch_run(
     pattern_block: str,
     from_run_id: str | None = None,
 ) -> dict[str, Any]:
+    import time
+
+    start_time = time.time()
+
+    # Progress: Workspace preparation (0-20%)
+    await run_events.publish(
+        run.id,
+        {
+            "type": "progress",
+            "stage": "workspace_prep",
+            "message": "Preparing workspace...",
+            "percent": 0,
+        },
+    )
+
     source_run_id = from_run_id or run.workspace_from_run_id
     workspace, cloned_entries, source_found = _prepare_workspace(
         run.project_id, run.id, source_run_id
@@ -191,15 +206,46 @@ async def launch_run(
         if source_found:
             event["action"] = "cloned"
             event["entries"] = cloned_entries
+            await run_events.publish(
+                run.id,
+                {
+                    "type": "progress",
+                    "stage": "workspace_cloned",
+                    "message": f"Cloned {len(cloned_entries)} items from previous run",
+                    "percent": 20,
+                    "details": {"files": cloned_entries[:10]},
+                },
+            )
         else:
             event["action"] = "clone-missing"
         await run_events.publish(run.id, event)
+    else:
+        await run_events.publish(
+            run.id,
+            {
+                "type": "progress",
+                "stage": "workspace_ready",
+                "message": "Workspace ready",
+                "percent": 20,
+            },
+        )
 
     await _update_status(session, run.id, "running")
 
     # Get project to determine task_type
     project = await repositories.projects.get_project(session, run.project_id)
     task_type = project.task_type if project else "code"
+
+    # Progress: Executing (30%)
+    await run_events.publish(
+        run.id,
+        {
+            "type": "progress",
+            "stage": "executing",
+            "message": "Running Codex agent on your task...",
+            "percent": 30,
+        },
+    )
 
     try:
         runner_response = await runner_client.invoke_run(
@@ -210,16 +256,70 @@ async def launch_run(
             workspace=workspace,
             task_type=task_type,
         )
+
+        # Progress: Processing results (70%)
+        await run_events.publish(
+            run.id,
+            {
+                "type": "progress",
+                "stage": "processing_results",
+                "message": "Processing execution results...",
+                "percent": 70,
+            },
+        )
+
         await _persist_messages(session, run.id, runner_response.get("messages", []))
         await _persist_tool_reports(session, run.id, runner_response.get("context_variables", {}))
         await _persist_diff_summary(session, run.id, workspace)
+
+        # Progress: Pattern extraction (85%)
+        await run_events.publish(
+            run.id,
+            {
+                "type": "progress",
+                "stage": "extracting_patterns",
+                "message": "Learning patterns from this run...",
+                "percent": 85,
+            },
+        )
+
         try:
             await pattern_agent.fetch_pattern(session, run.id)
         except Exception:
             logger.exception("Pattern agent failed for run %s", run.id)
-    except Exception:
+    except Exception as exc:
+        # Publish error event with helpful message
+        from ..errors import parse_error_notes
+
+        error_info = None
+        if hasattr(exc, "args") and exc.args:
+            error_info = parse_error_notes(exc.args)
+
+        if error_info:
+            await run_events.publish(
+                run.id,
+                {
+                    "type": "error",
+                    "run_id": run.id,
+                    "error": error_info.to_dict(),
+                },
+            )
+
         await _update_status(session, run.id, "failed")
         raise
+
+    # Progress: Complete (100%)
+    elapsed = time.time() - start_time
+    await run_events.publish(
+        run.id,
+        {
+            "type": "progress",
+            "stage": "complete",
+            "message": f"Run completed in {elapsed:.1f}s",
+            "percent": 100,
+            "elapsed": elapsed,
+        },
+    )
 
     await _update_status(session, run.id, "succeeded")
     return runner_response

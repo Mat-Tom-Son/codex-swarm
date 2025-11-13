@@ -11,6 +11,12 @@ from typing import Iterable
 from urllib.parse import quote
 
 import httpx
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+console = Console()
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = REPO_ROOT / "src"
@@ -57,31 +63,70 @@ def run_command(args: argparse.Namespace) -> None:
         "reference_run_id": args.reference_run_id,
         "from_run_id": args.from_run_id,
     }
-    with httpx.Client(base_url=args.api_url, timeout=None) as client:
-        # Create/update project with specified task_type
-        task_type = getattr(args, "task_type", "code")
-        client.put(f"/projects/{args.project_id}", json={
-            "id": args.project_id,
-            "name": args.project_id.title(),
-            "task_type": task_type,
-        }).raise_for_status()
-        resp = client.post(f"/projects/{args.project_id}/runs", json=payload)
-        resp.raise_for_status()
-        run = resp.json()
-        run_id = run["id"]
-        print(f"Launched run {run_id} (status={run['status']})")
-        safe_project = _safe_segment(args.project_id, "project")
-        safe_run = _safe_segment(run_id, "run")
-        print(f"Workspace: workspaces/{safe_project}/{safe_run}")
-        if task_type != "code":
-            print(f"Task type: {task_type}")
+
+    with console.status("[bold green]Creating run...") as status:
+        with httpx.Client(base_url=args.api_url, timeout=None) as client:
+            # Create/update project with specified task_type
+            task_type = getattr(args, "task_type", "code")
+            client.put(
+                f"/projects/{args.project_id}",
+                json={
+                    "id": args.project_id,
+                    "name": args.project_id.title(),
+                    "task_type": task_type,
+                },
+            ).raise_for_status()
+
+            status.update("[bold green]Launching run...")
+            resp = client.post(f"/projects/{args.project_id}/runs", json=payload)
+            resp.raise_for_status()
+            run = resp.json()
+            run_id = run["id"]
+
+    # Display run info in a nice table
+    table = Table(title="🚀 Run Created", show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="cyan bold")
+    table.add_column("Value", style="green")
+
+    table.add_row("Run ID", run_id)
+    table.add_row("Project", args.project_id)
+    table.add_row("Status", f"[yellow]{run['status']}[/yellow]")
+
+    safe_project = _safe_segment(args.project_id, "project")
+    safe_run = _safe_segment(run_id, "run")
+    table.add_row("Workspace", f"workspaces/{safe_project}/{safe_run}")
+
+    if task_type != "code":
+        table.add_row("Task Type", task_type)
+
+    if args.reference_run_id:
+        table.add_row("Using Pattern", args.reference_run_id)
+
+    if args.from_run_id:
+        table.add_row("Cloned From", args.from_run_id)
+
+    console.print()
+    console.print(table)
+    console.print()
+
     if args.watch:
         watch(args=argparse.Namespace(run_id=run_id, api_url=args.api_url))
 
 
 def watch(args: argparse.Namespace) -> None:
     url = f"{args.api_url}/runs/{args.run_id}/stream"
-    print(f"Streaming {url} (Ctrl+C to stop)")
+
+    console.print()
+    console.print(
+        Panel.fit(
+            f"Streaming events for run [bold cyan]{args.run_id}[/bold cyan]\n"
+            f"Press [bold]Ctrl+C[/bold] to stop watching",
+            title="📡 Live Monitor",
+            border_style="blue",
+        )
+    )
+    console.print()
+
     try:
         with httpx.Client(timeout=None) as client:
             with client.stream("GET", url) as response:
@@ -89,10 +134,99 @@ def watch(args: argparse.Namespace) -> None:
                 for line in response.iter_lines():
                     if not line or not line.startswith("data:"):
                         continue
+
                     data = json.loads(line.removeprefix("data:").strip())
-                    print(f"[{data.get('type','event')}] {json.dumps(data)}")
+                    event_type = data.get("type", "event")
+
+                    # Format different event types with colors and icons
+                    if event_type == "status":
+                        status = data.get("status", "unknown")
+                        if status == "queued":
+                            console.print("⏸️  [dim]Status: Queued[/dim]")
+                        elif status == "running":
+                            console.print("▶️  [yellow]Status: Running[/yellow]")
+                        elif status == "succeeded":
+                            console.print("✅ [bold green]Status: Succeeded[/bold green]")
+                        elif status == "failed":
+                            console.print("❌ [bold red]Status: Failed[/bold red]")
+                        else:
+                            console.print(f"📋 Status: {status}")
+
+                    elif event_type == "progress":
+                        message = data.get("message", "")
+                        percent = data.get("percent", 0)
+                        elapsed = data.get("elapsed")
+                        if elapsed:
+                            console.print(
+                                f"⏳ [[cyan]{percent:3d}%[/cyan]] {message} [dim]({elapsed:.1f}s)[/dim]"
+                            )
+                        else:
+                            console.print(f"⏳ [[cyan]{percent:3d}%[/cyan]] {message}")
+
+                    elif event_type == "step":
+                        role = data.get("role", "")
+                        content = data.get("content", "")[:150]
+                        if role == "assistant":
+                            console.print(f"🤖 [blue]{content}...[/blue]")
+                        elif role == "user":
+                            console.print(f"👤 [white]{content}...[/white]")
+                        elif role == "tool":
+                            console.print(f"🔧 [magenta]{content}[/magenta]")
+                            # Show files if present
+                            files = data.get("files", [])
+                            if files:
+                                console.print(
+                                    f"   [dim]Modified: {', '.join(files[:5])}[/dim]"
+                                )
+
+                    elif event_type == "artifact":
+                        path = data.get("path", "")
+                        bytes_count = data.get("bytes", 0)
+                        console.print(
+                            f"📄 [green]Artifact saved:[/green] {path} [dim]({bytes_count} bytes)[/dim]"
+                        )
+
+                    elif event_type == "error":
+                        error = data.get("error", {})
+                        console.print()
+                        console.print(
+                            Panel(
+                                f"[bold red]{error.get('error', 'Unknown error')}[/bold red]\n\n"
+                                f"💡 [yellow]Suggestion:[/yellow] {error.get('suggestion', 'Check the logs')}",
+                                title="⚠️  Error",
+                                border_style="red",
+                            )
+                        )
+                        console.print()
+
+                    elif event_type == "workspace":
+                        action = data.get("action", "")
+                        if action == "cloned":
+                            entries = data.get("entries", [])
+                            console.print(
+                                f"📁 [green]Workspace cloned:[/green] {len(entries)} items"
+                            )
+                        elif action == "clone-missing":
+                            console.print("📁 [yellow]Source workspace not found[/yellow]")
+
+                    elif event_type == "diff":
+                        diff = data.get("diff", {})
+                        files_changed = len(diff.get("files", []))
+                        if files_changed:
+                            console.print(
+                                f"📝 [cyan]Git diff:[/cyan] {files_changed} files changed"
+                            )
+
+                    else:
+                        # Unknown event type, show as dim JSON
+                        console.print(f"[dim]• {event_type}: {json.dumps(data)}[/dim]")
+
     except KeyboardInterrupt:
-        print("Disconnected")
+        console.print()
+        console.print("[yellow]Disconnected[/yellow]")
+    except Exception as exc:
+        console.print()
+        console.print(f"[red]Error: {exc}[/red]")
 
 
 def open_ui(args: argparse.Namespace) -> None:
