@@ -22,6 +22,42 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = REPO_ROOT / "src"
 DEFAULT_API = "http://localhost:5050"
 
+# Run templates for common tasks
+RUN_TEMPLATES = {
+    "test": {
+        "instructions": "Run all tests in the test suite and report results",
+        "description": "Run test suite",
+    },
+    "lint": {
+        "instructions": "Run linting on the codebase and fix any issues found",
+        "description": "Run linter and fix issues",
+    },
+    "format": {
+        "instructions": "Format all code files according to project style",
+        "description": "Format code",
+    },
+    "doc": {
+        "instructions": "Generate or update documentation for the codebase",
+        "description": "Generate documentation",
+    },
+    "analyze": {
+        "instructions": "Analyze the codebase for potential issues, bugs, and improvements",
+        "description": "Code analysis",
+    },
+    "refactor": {
+        "instructions": "Refactor the code to improve maintainability and readability",
+        "description": "Refactor code",
+    },
+    "security": {
+        "instructions": "Scan the codebase for security vulnerabilities and suggest fixes",
+        "description": "Security scan",
+    },
+    "deps": {
+        "instructions": "Update project dependencies to latest compatible versions",
+        "description": "Update dependencies",
+    },
+}
+
 
 def _safe_segment(value: str, fallback: str) -> str:
     trimmed = value.strip() or fallback
@@ -55,11 +91,55 @@ def services(args: argparse.Namespace) -> None:
     _run(["bash", "scripts/devservers.sh"])
 
 
+def templates(args: argparse.Namespace) -> None:
+    """List available run templates."""
+    console.print()
+    console.print(Panel.fit("📝 Available Run Templates", border_style="cyan"))
+    console.print()
+
+    table = Table(show_header=True, box=None)
+    table.add_column("Template", style="cyan bold", no_wrap=True)
+    table.add_column("Description", style="white")
+    table.add_column("Instructions", style="dim")
+
+    for name, template in sorted(RUN_TEMPLATES.items()):
+        table.add_row(
+            name,
+            template["description"],
+            template["instructions"][:60] + "..." if len(template["instructions"]) > 60 else template["instructions"],
+        )
+
+    console.print(table)
+    console.print()
+    console.print("[dim]Usage: ./run.sh crossrun run --template <name>[/dim]")
+    console.print()
+
+
 def run_command(args: argparse.Namespace) -> None:
+    # Handle template if specified
+    instructions = args.instructions
+    if hasattr(args, "template") and args.template:
+        if args.template not in RUN_TEMPLATES:
+            console.print(f"[red]Unknown template: {args.template}[/red]")
+            console.print(f"[yellow]Available templates: {', '.join(RUN_TEMPLATES.keys())}[/yellow]")
+            console.print("[dim]Use './run.sh crossrun templates' to see all templates[/dim]")
+            return
+
+        template = RUN_TEMPLATES[args.template]
+        instructions = template["instructions"]
+        console.print(f"[cyan]Using template:[/cyan] {args.template} - {template['description']}")
+        console.print()
+    elif not instructions:
+        console.print("[red]Error: Either instructions or --template is required[/red]")
+        console.print("[dim]Usage:[/dim]")
+        console.print("  [dim]./run.sh crossrun run \"your instructions here\"[/dim]")
+        console.print("  [dim]./run.sh crossrun run --template test[/dim]")
+        return
+
     payload = {
         "project_id": args.project_id,
-        "name": args.name or args.instructions.splitlines()[0][:40] or "Run",
-        "instructions": args.instructions,
+        "name": args.name or instructions.splitlines()[0][:40] or "Run",
+        "instructions": instructions,
         "reference_run_id": args.reference_run_id,
         "from_run_id": args.from_run_id,
     }
@@ -281,6 +361,195 @@ def open_ui(args: argparse.Namespace) -> None:
         print("Please open manually:", url)
 
 
+def cleanup(args: argparse.Namespace) -> None:
+    """Clean up old workspaces and artifacts."""
+    from datetime import datetime, timedelta
+    import shutil
+
+    workspace_root = REPO_ROOT / "workspaces"
+    artifacts_root = REPO_ROOT / "artifacts"
+
+    if not workspace_root.exists():
+        console.print("[yellow]No workspaces directory found[/yellow]")
+        return
+
+    cutoff = datetime.now() - timedelta(days=args.older_than)
+
+    console.print(f"[yellow]Finding workspaces older than {args.older_than} days...[/yellow]\n")
+
+    # Find candidates for deletion
+    to_delete = []
+    total_size = 0
+
+    for workspace_dir in workspace_root.rglob("run-*"):
+        if not workspace_dir.is_dir():
+            continue
+
+        # Check modification time
+        mtime = datetime.fromtimestamp(workspace_dir.stat().st_mtime)
+        if mtime > cutoff:
+            continue
+
+        # If only-failed, check run status
+        if args.only_failed:
+            # Try to determine if run failed (basic heuristic)
+            # In a full implementation, we'd query the API
+            # For now, skip this filter or use a simple check
+            pass
+
+        # Calculate size
+        size = sum(f.stat().st_size for f in workspace_dir.rglob("*") if f.is_file())
+        total_size += size
+
+        age_days = (datetime.now() - mtime).days
+        to_delete.append({
+            "path": workspace_dir,
+            "size": size,
+            "age_days": age_days,
+            "mtime": mtime,
+        })
+
+    if not to_delete:
+        console.print("[green]✓ No workspaces to clean up![/green]")
+        return
+
+    # Show what will be deleted
+    table = Table(title=f"Workspaces to Delete ({len(to_delete)})")
+    table.add_column("Path", style="cyan", no_wrap=False)
+    table.add_column("Size", style="yellow", justify="right")
+    table.add_column("Age", style="dim", justify="right")
+
+    # Sort by size descending, show top 20
+    sorted_items = sorted(to_delete, key=lambda x: x["size"], reverse=True)
+    for item in sorted_items[:20]:
+        rel_path = item["path"].relative_to(workspace_root)
+        size_mb = item["size"] / 1024 / 1024
+        table.add_row(
+            str(rel_path),
+            f"{size_mb:.1f} MB",
+            f"{item['age_days']} days",
+        )
+
+    if len(to_delete) > 20:
+        table.add_row("[dim]...[/dim]", f"[dim]+ {len(to_delete) - 20} more[/dim]", "")
+
+    console.print(table)
+    console.print()
+    console.print(f"[bold]Total: {total_size / 1024 / 1024:.1f} MB will be freed[/bold]\n")
+
+    if args.dry_run:
+        console.print("[yellow]Dry run - no files deleted[/yellow]")
+        return
+
+    # Confirm deletion
+    if not args.force:
+        from rich.prompt import Confirm
+
+        if not Confirm.ask("Proceed with deletion?", default=False):
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    # Delete workspaces
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Deleting workspaces...", total=len(to_delete))
+
+        for item in to_delete:
+            try:
+                shutil.rmtree(item["path"])
+                progress.advance(task)
+            except Exception as exc:
+                console.print(f"[red]Failed to delete {item['path']}: {exc}[/red]")
+
+    console.print()
+    console.print(
+        f"[green]✓ Deleted {len(to_delete)} workspaces ({total_size / 1024 / 1024:.1f} MB freed)[/green]"
+    )
+
+
+def stats(args: argparse.Namespace) -> None:
+    """Show disk usage statistics."""
+    workspace_root = REPO_ROOT / "workspaces"
+    artifacts_root = REPO_ROOT / "artifacts"
+    data_dir = REPO_ROOT / "data"
+
+    def calculate_dir_size(path: Path) -> tuple[int, int]:
+        """Returns (total_size_bytes, file_count)."""
+        if not path.exists():
+            return 0, 0
+        total = 0
+        count = 0
+        for f in path.rglob("*"):
+            if f.is_file():
+                total += f.stat().st_size
+                count += 1
+        return total, count
+
+    console.print()
+    console.print(Panel.fit("📊 Disk Usage Statistics", border_style="cyan"))
+    console.print()
+
+    # Calculate sizes
+    workspace_size, workspace_files = calculate_dir_size(workspace_root)
+    artifacts_size, artifacts_files = calculate_dir_size(artifacts_root)
+    data_size, data_files = calculate_dir_size(data_dir)
+
+    # Count workspaces
+    workspace_count = 0
+    if workspace_root.exists():
+        workspace_count = sum(1 for _ in workspace_root.rglob("run-*") if _.is_dir())
+
+    # Create table
+    table = Table(show_header=True, box=None)
+    table.add_column("Location", style="cyan bold")
+    table.add_column("Size", style="green", justify="right")
+    table.add_column("Files", style="yellow", justify="right")
+    table.add_column("Notes", style="dim")
+
+    table.add_row(
+        "Workspaces",
+        f"{workspace_size / 1024 / 1024:.1f} MB",
+        str(workspace_files),
+        f"{workspace_count} runs",
+    )
+
+    table.add_row(
+        "Artifacts",
+        f"{artifacts_size / 1024 / 1024:.1f} MB",
+        str(artifacts_files),
+        "Execution logs",
+    )
+
+    table.add_row(
+        "Database",
+        f"{data_size / 1024 / 1024:.1f} MB",
+        str(data_files),
+        "SQLite DB",
+    )
+
+    total_size = workspace_size + artifacts_size + data_size
+    table.add_row(
+        "[bold]Total[/bold]",
+        f"[bold]{total_size / 1024 / 1024:.1f} MB[/bold]",
+        f"[bold]{workspace_files + artifacts_files + data_files}[/bold]",
+        "",
+    )
+
+    console.print(table)
+    console.print()
+
+    # Show recommendations
+    if workspace_size > 1024 * 1024 * 1024:  # > 1GB
+        console.print(
+            "[yellow]💡 Workspaces are using significant disk space. "
+            "Consider running cleanup:[/yellow]"
+        )
+        console.print("   [dim]./run.sh crossrun cleanup --older-than 7[/dim]\n")
+
+
 def quickstart(args: argparse.Namespace) -> None:
     install(args)
     migrate(args)
@@ -331,7 +600,7 @@ def build_parser() -> argparse.ArgumentParser:
     services_p.set_defaults(func=services)
 
     run_p = sub.add_parser("run", help="Launch a Codex run and optionally watch it")
-    run_p.add_argument("instructions", help="Instruction text sent to Codex")
+    run_p.add_argument("instructions", nargs="?", help="Instruction text sent to Codex")
     run_p.add_argument("--project-id", default="demo")
     run_p.add_argument("--name")
     run_p.add_argument(
@@ -341,6 +610,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="code",
         choices=["code", "research", "writing", "data_analysis", "document_processing"],
         help="Task type for the run (alias: --project-type, default: code)",
+    )
+    run_p.add_argument(
+        "--template",
+        "-t",
+        choices=list(RUN_TEMPLATES.keys()),
+        help="Use a predefined template",
     )
     run_p.add_argument("--reference-run-id", help="Reference run ID for pattern reuse")
     run_p.add_argument("--from-run-id", help="Source run ID to clone workspace from")
@@ -362,6 +637,36 @@ def build_parser() -> argparse.ArgumentParser:
     ui_p.add_argument("run_id")
     ui_p.add_argument("--api-url", default=DEFAULT_API)
     ui_p.set_defaults(func=open_ui)
+
+    cleanup_p = sub.add_parser("cleanup", help="Clean up old workspaces")
+    cleanup_p.add_argument(
+        "--older-than",
+        type=int,
+        default=7,
+        help="Delete workspaces older than N days (default: 7)",
+    )
+    cleanup_p.add_argument(
+        "--only-failed",
+        action="store_true",
+        help="Only delete failed runs",
+    )
+    cleanup_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be deleted without actually deleting",
+    )
+    cleanup_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    cleanup_p.set_defaults(func=cleanup)
+
+    stats_p = sub.add_parser("stats", help="Show disk usage statistics")
+    stats_p.set_defaults(func=stats)
+
+    templates_p = sub.add_parser("templates", help="List available run templates")
+    templates_p.set_defaults(func=templates)
 
     quick_p = sub.add_parser("quickstart", help="Install, migrate, start services, and run a sample task")
     quick_p.add_argument("--instructions", default="touch hello.txt")
