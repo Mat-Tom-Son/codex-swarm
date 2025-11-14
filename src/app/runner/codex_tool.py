@@ -52,7 +52,7 @@ def _build_codex_env() -> dict[str, str]:
 
 
 def _ensure_codex_login(env: dict[str, str]) -> tuple[bool, list[str]]:
-    """Make sure codex CLI is authenticated. Returns (ok, notes)."""
+    """Ensure the Codex CLI is authenticated. Returns (ok, notes)."""
     notes: list[str] = []
     if env.get("CROSS_RUN_FAKE_CODEX") == "1":
         return True, notes
@@ -63,6 +63,7 @@ def _ensure_codex_login(env: dict[str, str]) -> tuple[bool, list[str]]:
             capture_output=True,
             text=True,
             env=env,
+            check=False,
         )
         if status.returncode == 0:
             return True, notes
@@ -71,14 +72,18 @@ def _ensure_codex_login(env: dict[str, str]) -> tuple[bool, list[str]]:
             notes.append("codex-login-missing-key")
             return False, notes
         login = subprocess.run(
-            ["codex", "login", "--with-api-key", key],
+            ["codex", "login", "--with-api-key"],
+            input=f"{key}\n",
             capture_output=True,
             text=True,
             env=env,
+            check=False,
         )
         if login.returncode != 0:
-            stderr = (login.stderr or "").strip()[:200]
-            notes.append(f"codex-login-failed:{stderr or login.stdout.strip()[:200]}")
+            stderr = (login.stderr or "").strip()
+            stdout = (login.stdout or "").strip()
+            failure = stderr or stdout or "unknown failure"
+            notes.append(f"codex-login-failed:{failure[:200]}")
             return False, notes
         return True, notes
     except FileNotFoundError:
@@ -108,7 +113,7 @@ def codex_exec(
     skip_git_check = not settings.require_git_repo or not has_git
     run_id = context_variables.get("run_id", "run-unknown")
     profile = profile or context_variables.get("profile") or settings.codex_profile
-    sandbox_flag = "--full-auto" if settings.codex_full_auto else ""
+    resume_thread_id = context_variables.get("codex_resume_thread_id")
 
     artifact_dir = Path(settings.artifacts_root)
     artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -149,20 +154,29 @@ def codex_exec(
         return "codex_exec(login-needed)"
     notes.extend(login_notes)
 
-    cmd = [
+    cmd: list[str] = [
         "codex",
         "exec",
         "--json",
-        "--profile",
-        profile,
+        "--cd",
+        workspace,
     ]
-    if sandbox_flag:
-        cmd.append(sandbox_flag)
+    if settings.codex_full_auto:
+        cmd.append("--full-auto")
+    if profile:
+        notes.append(f"profile:{profile}")
     if skip_git_check:
         cmd.append("--skip-git-repo-check")
         notes.append("skip-git-repo-check")
-    cmd.extend(["--cd", workspace, prompt])
 
+    if resume_thread_id:
+        cmd.extend(["resume", resume_thread_id])
+        if prompt:
+            cmd.append(prompt)
+    else:
+        cmd.append(prompt)
+
+    thread_id: str | None = None
     stderr_data = ""
     try:
         with artifact_path.open("w", encoding="utf-8") as artifact_file:
@@ -183,7 +197,6 @@ def codex_exec(
 
             try:
                 for line in proc.stdout:
-                    # Check for cancellation
                     if _is_cancelled(run_id):
                         notes.append("cancelled-by-user")
                         proc.terminate()
@@ -198,15 +211,19 @@ def codex_exec(
                     try:
                         evt = json.loads(line)
                     except json.JSONDecodeError:
-                        notes.append("jsonl-parse-error")
                         continue
-                    evt_type = evt.get("type") or evt.get("event")
-                    if evt_type == "file.changed" and evt.get("path"):
-                        files.add(evt["path"])
-                    if evt_type in {"run.failed", "error"}:
+
+                    evt_type = evt.get("type")
+                    if evt_type == "thread.started":
+                        thread_id = evt.get("thread_id") or thread_id
+                    elif evt_type == "item.completed":
+                        item = evt.get("item") or {}
+                        if item.get("type") == "command_execution":
+                            cmd_text = item.get("command") or ""
+                            exit_code = item.get("exit_code")
+                            notes.append(f"cmd:{cmd_text} exit:{exit_code}")
+                    elif evt_type in {"run.failed", "error"}:
                         ok = False
-                    if evt_type == "command.result":
-                        notes.append(f"cmd:{evt.get('cmd')} exit:{evt.get('exit_code')}")
 
                 proc.stdout.close()
                 stderr_data = proc.stderr.read()
@@ -231,6 +248,9 @@ def codex_exec(
     except Exception as exc:  # noqa: BLE001
         ok = False
         notes.append(f"codex-error:{exc}")
+
+    if thread_id:
+        context_variables["codex_thread_id"] = thread_id
 
     bytes_written = artifact_path.stat().st_size if artifact_path.exists() else 0
 

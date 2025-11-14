@@ -256,6 +256,11 @@ async def launch_run(
     # Get project to determine task_type
     project = await repositories.projects.get_project(session, run.project_id)
     task_type = project.task_type if project else "code"
+    resume_thread_id: str | None = None
+    if run.reference_run_id:
+        reference_run = await repositories.runs.get_run(session, run.reference_run_id)
+        if reference_run and getattr(reference_run, "codex_thread_id", None):
+            resume_thread_id = reference_run.codex_thread_id
 
     # Progress: Executing (30%)
     await run_events.publish(
@@ -276,6 +281,7 @@ async def launch_run(
             pattern_block=pattern_block,
             workspace=workspace,
             task_type=task_type,
+            resume_thread_id=resume_thread_id,
         )
 
         # Progress: Processing results (70%)
@@ -290,7 +296,12 @@ async def launch_run(
         )
 
         await _persist_messages(session, run.id, runner_response.get("messages", []))
-        await _persist_tool_reports(session, run.id, runner_response.get("context_variables", {}))
+        context_variables = runner_response.get("context_variables", {})
+        await _persist_tool_reports(session, run.id, context_variables)
+        new_thread_id = context_variables.get("codex_thread_id")
+        if new_thread_id:
+            run.codex_thread_id = new_thread_id
+            await session.flush()
         await _persist_diff_summary(session, run.id, workspace)
 
         # Progress: Pattern extraction (85%)
@@ -326,6 +337,7 @@ async def launch_run(
                 },
             )
 
+        await session.rollback()
         await _update_status(session, run.id, "failed")
         raise
 
@@ -371,9 +383,7 @@ async def _persist_messages(
         role = msg.get("role")
         if role not in {"user", "assistant"}:
             continue
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            content = json.dumps(content)
+        content = _serialize_message_content(msg)
         step = Step(
             id=new_id("step"),
             run_id=run_id,
@@ -492,6 +502,27 @@ async def _update_status(session: AsyncSession, run_id: str, status: str) -> Non
             "run_id": run_id,
         },
     )
+
+
+def _serialize_message_content(msg: dict[str, Any]) -> str:
+    """
+    Normalize assistant/user message content into a string so it always
+    fits the NOT NULL constraint on Step.content. Some responses only
+    contain tool/function calls, so we persist those as JSON.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (list, dict)):
+        return json.dumps(content)
+    if content is not None:
+        return str(content)
+
+    for key in ("tool_calls", "function_call"):
+        data = msg.get(key)
+        if data:
+            return json.dumps({key: data})
+    return ""
 
 
 async def launch_run_background(

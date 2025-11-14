@@ -98,6 +98,7 @@ Most AI automation tools forget everything after each run. Codex-Swarm:
 
 - **Python 3.11+**
 - **Anthropic Codex CLI** ([install guide](https://docs.claude.com/claude-code))
+- **OpenAI Codex CLI 0.58+** (`npm i -g @openai/codex`)
 - **OpenAI API key** (for Swarm planning) - or run in offline mode
 
 ### Installation
@@ -123,6 +124,34 @@ EOF
 # 5. Start services
 ./run.sh crossrun services
 ```
+
+### Codex CLI Setup (headless)
+
+Codex-Swarm now talks to the official Codex CLI directly. Do this once per workstation (and whenever you open a fresh shell):
+
+```bash
+# Install/upgrade the CLI
+npm i -g @openai/codex
+
+# Provide your API key to both Bash and Codex
+export OPENAI_API_KEY=sk-your-key-here
+printenv OPENAI_API_KEY | codex login --with-api-key
+
+# Double-check authentication (exits 0 when ready)
+codex login status
+```
+
+> Every terminal where you run `./run.sh …` needs `OPENAI_API_KEY` exported so the worker processes inherit it.
+
+#### Upgrading existing installs
+
+If you already have Codex-Swarm checked out, pull the latest changes and rerun:
+
+```bash
+PYTHONPATH=src python3.11 -m app.migrations
+```
+
+so your local SQLite database picks up the new `codex_thread_id` column.
 
 ### Your First Run
 
@@ -169,6 +198,8 @@ EOF
   --project-id=my-project \
   --reference-run-id=<pattern-to-reuse>
 ```
+
+When you pass `--reference-run-id`, Codex-Swarm now resumes the original Codex session in addition to injecting the learned pattern, so follow-up runs can continue the same multi-step conversation and workspace context.
 
 ### Available Templates
 

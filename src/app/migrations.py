@@ -18,6 +18,9 @@ def init_db(path: Path | None = None) -> None:
         columns = {col["name"] for col in inspect(conn).get_columns("runs")}
         if "workspace_from_run_id" not in columns:
             conn.execute(text("ALTER TABLE runs ADD COLUMN workspace_from_run_id VARCHAR"))
+            columns.add("workspace_from_run_id")
+        if "codex_thread_id" not in columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN codex_thread_id VARCHAR"))
 
         # Migration: Ensure task_type/domain_config exist on projects table
         inspector = inspect(conn)

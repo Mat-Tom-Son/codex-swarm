@@ -40,6 +40,7 @@ class RunRead(BaseModel):
     reference_run_id: str | None = None
     workspace_from_run_id: str | None = None
     system_instructions: str | None = None
+    codex_thread_id: str | None = None
 
 
 class StepRead(BaseModel):

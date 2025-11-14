@@ -24,6 +24,7 @@ def _run_to_read(run: Run) -> RunRead:
         reference_run_id=run.reference_run_id,
         workspace_from_run_id=run.workspace_from_run_id,
         system_instructions=run.system_instructions,
+        codex_thread_id=getattr(run, "codex_thread_id", None),
     )
 
 

@@ -41,6 +41,7 @@ class Run(Base):
     reference_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     workspace_from_run_id: Mapped[str | None] = mapped_column(String, nullable=True)
     system_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    codex_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="runs")
     steps: Mapped[list["Step"]] = relationship(back_populates="run")

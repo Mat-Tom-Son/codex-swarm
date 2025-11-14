@@ -16,6 +16,7 @@ async def invoke_run(
     workspace: Path,
     task_type: str = "code",
     profile: str | None = None,
+    resume_thread_id: str | None = None,
 ) -> Dict[str, Any]:
     payload = {
         "messages": [{"role": "user", "content": user_prompt}],
@@ -29,6 +30,9 @@ async def invoke_run(
             "task_type": task_type,  # Pass task type to runner
         },
     }
+    if resume_thread_id:
+        payload["context_variables"]["codex_resume_thread_id"] = resume_thread_id
+
     async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.post(f"{settings.runner_url}/run", json=payload)
         resp.raise_for_status()
