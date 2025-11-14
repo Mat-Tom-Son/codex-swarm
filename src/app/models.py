@@ -43,6 +43,12 @@ class Run(Base):
     system_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     codex_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # DraftPunk integration fields
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    had_errors: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    errors_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array of error objects
+    machine_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON object
+
     project: Mapped["Project"] = relationship(back_populates="runs")
     steps: Mapped[list["Step"]] = relationship(back_populates="run")
 

@@ -36,11 +36,19 @@ async def upsert_project(
     payload: ProjectCreate,
     session: AsyncSession = Depends(db_session),
 ) -> ProjectRead:
+    # DraftPunk requirement: enforce non-empty project_id
+    if not project_id or not project_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project ID cannot be empty. Use a stable identifier for your DraftPunk workspace.",
+        )
+
     if project_id != payload.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Project ID mismatch between path and payload.",
-    )
+        )
+
     project = Project(
         id=payload.id,
         name=payload.name,
@@ -63,14 +71,28 @@ async def create_run_for_project(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(db_session),
 ) -> RunRead:
+    # DraftPunk requirement: enforce non-empty project_id
+    if not project_id or not project_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project ID cannot be empty. Use a stable identifier for your DraftPunk workspace.",
+        )
+
     if payload.project_id != project_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Project ID mismatch between path and payload.",
         )
+
     project = await repositories.projects.get_project(session, project_id)
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+    # Update project task_type if provided in payload
+    if payload.task_type and payload.task_type != project.task_type:
+        project.task_type = payload.task_type
+        await repositories.projects.upsert_project(session, project)
+
     if payload.from_run_id:
         source_run = await repositories.runs.get_run(session, payload.from_run_id)
         if not source_run:
@@ -92,6 +114,7 @@ async def create_run_for_project(
         ),
     )
     await session.commit()
+
     background_tasks.add_task(
         run_service.launch_run_background,
         creation.run.id,
@@ -99,14 +122,9 @@ async def create_run_for_project(
         creation.pattern_block,
         payload.from_run_id,
     )
+
+    # Return full RunRead with DraftPunk fields (imports from runs.py)
+    from .runs import _run_to_read
+
     run = creation.run
-    return RunRead(
-        id=run.id,
-        project_id=run.project_id,
-        name=run.name,
-        created_at=run.created_at,
-        status=run.status,
-        reference_run_id=run.reference_run_id,
-        workspace_from_run_id=run.workspace_from_run_id,
-        system_instructions=run.system_instructions,
-    )
+    return await _run_to_read(run, session, include_artifacts=False)

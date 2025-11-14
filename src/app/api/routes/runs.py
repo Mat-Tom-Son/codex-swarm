@@ -7,20 +7,89 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ... import repositories
 from ...models import Artifact, Run, Step
-from ...schemas import ArtifactRead, RunRead, StepRead
+from ...schemas import ArtifactRead, MachineSummary, RunError, RunRead, StepRead, WorkspaceFile, WorkspaceFileListing
 from ..deps import db_session
 from ...events import run_events
 
 router = APIRouter()
 
 
-def _run_to_read(run: Run) -> RunRead:
+def _guess_file_type(file_path: Path) -> str:
+    """Guess file type from extension."""
+    ext = file_path.suffix.lower()
+
+    type_map = {
+        ".md": "markdown",
+        ".markdown": "markdown",
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".jsx": "javascript",
+        ".tsx": "typescript",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".txt": "text",
+        ".html": "html",
+        ".css": "css",
+        ".sh": "shell",
+        ".bash": "shell",
+        ".xml": "xml",
+        ".csv": "csv",
+        ".pdf": "pdf",
+        ".docx": "docx",
+        ".png": "image",
+        ".jpg": "image",
+        ".jpeg": "image",
+        ".gif": "image",
+        ".svg": "image",
+    }
+
+    return type_map.get(ext, "binary" if not file_path.suffix else "text")
+
+
+async def _run_to_read(run: Run, session: AsyncSession, include_artifacts: bool = True) -> RunRead:
+    """Convert Run model to RunRead schema with all DraftPunk fields."""
+    # Parse errors JSON
+    errors = []
+    if run.errors_json:
+        try:
+            errors_data = json.loads(run.errors_json)
+            errors = [RunError(**e) for e in errors_data]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # Parse machine summary JSON
+    machine_summary = None
+    if run.machine_summary_json:
+        try:
+            summary_data = json.loads(run.machine_summary_json)
+            machine_summary = MachineSummary(**summary_data)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # Fetch artifacts if requested
+    artifacts = []
+    if include_artifacts:
+        artifact_models = await repositories.artifacts.list_artifacts_for_run(session, run.id)
+        artifacts = [_artifact_to_read(a) for a in artifact_models]
+
+    # Get task_type from project
+    project = await repositories.projects.get_project(session, run.project_id)
+    task_type = project.task_type if project else "code"
+
     return RunRead(
         id=run.id,
         project_id=run.project_id,
         name=run.name,
         created_at=run.created_at,
         status=run.status,
+        task_type=task_type,
+        progress=getattr(run, "progress", 0),
+        had_errors=getattr(run, "had_errors", False),
+        errors=errors,
+        artifacts=artifacts,
+        machine_summary=machine_summary,
         reference_run_id=run.reference_run_id,
         workspace_from_run_id=run.workspace_from_run_id,
         system_instructions=run.system_instructions,
@@ -62,7 +131,8 @@ async def list_runs(
     session: AsyncSession = Depends(db_session),
 ) -> list[RunRead]:
     runs = await repositories.runs.list_runs(session, project_id=project_id)
-    return [_run_to_read(run) for run in runs]
+    # For list view, don't include artifacts to keep response lightweight
+    return [await _run_to_read(run, session, include_artifacts=False) for run in runs]
 
 
 @router.get("/{run_id}", response_model=RunRead)
@@ -70,7 +140,8 @@ async def get_run(run_id: str, session: AsyncSession = Depends(db_session)) -> R
     run = await repositories.runs.get_run(session, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found.")
-    return _run_to_read(run)
+    # For single run view, include all artifacts
+    return await _run_to_read(run, session, include_artifacts=True)
 
 
 @router.get("/{run_id}/steps", response_model=list[StepRead])
@@ -218,11 +289,11 @@ async def cancel_run(
     return {"status": "cancelled", "process_killed": killed}
 
 
-@router.get("/{run_id}/workspace/files")
+@router.get("/{run_id}/workspace/files", response_model=WorkspaceFileListing)
 async def list_workspace_files(
     run_id: str,
     session: AsyncSession = Depends(db_session),
-):
+) -> WorkspaceFileListing:
     """List files in run workspace."""
     from ...services import run_service
 
@@ -233,7 +304,7 @@ async def list_workspace_files(
     workspace = run_service._workspace_path(run.project_id, run.id)
 
     if not workspace.exists():
-        return {"files": [], "workspace": str(workspace)}
+        return WorkspaceFileListing(run_id=run_id, total_files=0, files=[])
 
     files = []
     for path in workspace.rglob("*"):
@@ -243,17 +314,23 @@ async def list_workspace_files(
             if str(rel_path).startswith(".git/"):
                 continue
 
-            files.append({
-                "path": str(rel_path),
-                "size": path.stat().st_size,
-                "modified": path.stat().st_mtime,
-            })
+            # Guess file type from extension
+            file_type = _guess_file_type(path)
 
-    return {
-        "files": sorted(files, key=lambda f: f["path"]),
-        "workspace": str(workspace),
-        "total_files": len(files),
-    }
+            files.append(
+                WorkspaceFile(
+                    path=str(rel_path),
+                    size_bytes=path.stat().st_size,
+                    type=file_type,
+                )
+            )
+
+    sorted_files = sorted(files, key=lambda f: f.path)
+    return WorkspaceFileListing(
+        run_id=run_id,
+        total_files=len(sorted_files),
+        files=sorted_files,
+    )
 
 
 @router.get("/{run_id}/workspace/files/{file_path:path}")

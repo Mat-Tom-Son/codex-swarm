@@ -20,6 +20,7 @@ from ..services import patterns as pattern_service
 from ..services import runner_client
 from ..services import diff as diff_service
 from ..services import pattern_agent
+from ..services import machine_summary as machine_summary_service
 from ..utils import new_id
 from ..events import run_events
 
@@ -203,6 +204,7 @@ async def launch_run(
     start_time = time.time()
 
     # Progress: Workspace preparation (0-20%)
+    await _update_progress(session, run.id, 0)
     await run_events.publish(
         run.id,
         {
@@ -227,6 +229,7 @@ async def launch_run(
         if source_found:
             event["action"] = "cloned"
             event["entries"] = cloned_entries
+            await _update_progress(session, run.id, 20)
             await run_events.publish(
                 run.id,
                 {
@@ -241,6 +244,7 @@ async def launch_run(
             event["action"] = "clone-missing"
         await run_events.publish(run.id, event)
     else:
+        await _update_progress(session, run.id, 20)
         await run_events.publish(
             run.id,
             {
@@ -263,6 +267,7 @@ async def launch_run(
             resume_thread_id = reference_run.codex_thread_id
 
     # Progress: Executing (30%)
+    await _update_progress(session, run.id, 30)
     await run_events.publish(
         run.id,
         {
@@ -285,6 +290,7 @@ async def launch_run(
         )
 
         # Progress: Processing results (70%)
+        await _update_progress(session, run.id, 70)
         await run_events.publish(
             run.id,
             {
@@ -305,6 +311,7 @@ async def launch_run(
         await _persist_diff_summary(session, run.id, workspace)
 
         # Progress: Pattern extraction (85%)
+        await _update_progress(session, run.id, 85)
         await run_events.publish(
             run.id,
             {
@@ -327,7 +334,17 @@ async def launch_run(
         if hasattr(exc, "args") and exc.args:
             error_info = parse_error_notes(exc.args)
 
+        # Track error in run
+        error_record = {
+            "step": "execution",
+            "tool": "runner",
+            "error_type": "runtime_error",
+            "message": str(exc),
+        }
+
         if error_info:
+            error_record["error_type"] = getattr(error_info, "error_type", "runtime_error")
+            error_record["message"] = getattr(error_info, "message", str(exc))
             await run_events.publish(
                 run.id,
                 {
@@ -337,6 +354,7 @@ async def launch_run(
                 },
             )
 
+        await _record_error(session, run.id, error_record)
         await session.rollback()
         await _update_status(session, run.id, "failed")
         raise
@@ -347,6 +365,7 @@ async def launch_run(
     # Collect workspace file summary
     workspace_files = _collect_workspace_files(workspace)
 
+    await _update_progress(session, run.id, 100)
     await run_events.publish(
         run.id,
         {
@@ -369,6 +388,9 @@ async def launch_run(
                 "total_files": len(workspace_files),
             },
         )
+
+    # Generate machine summary for DraftPunk
+    await _generate_and_store_summary(session, run.id, workspace)
 
     await _update_status(session, run.id, "succeeded")
     return runner_response
@@ -502,6 +524,71 @@ async def _update_status(session: AsyncSession, run_id: str, status: str) -> Non
             "run_id": run_id,
         },
     )
+
+
+async def _update_progress(session: AsyncSession, run_id: str, progress: int) -> None:
+    """Update run progress percentage."""
+    await repositories.runs.update_run_progress(session, run_id, progress)
+    await session.flush()
+
+
+async def _record_error(session: AsyncSession, run_id: str, error_record: dict[str, Any]) -> None:
+    """Record a structured error for the run."""
+    # Load existing errors
+    run = await repositories.runs.get_run(session, run_id)
+    if not run:
+        return
+
+    errors = []
+    if run.errors_json:
+        try:
+            errors = json.loads(run.errors_json)
+        except json.JSONDecodeError:
+            pass
+
+    # Append new error
+    errors.append(error_record)
+
+    # Update run
+    await repositories.runs.update_run_errors(
+        session,
+        run_id,
+        had_errors=True,
+        errors_json=json.dumps(errors),
+    )
+    await session.flush()
+
+
+async def _generate_and_store_summary(
+    session: AsyncSession,
+    run_id: str,
+    workspace: Path,
+) -> None:
+    """Generate and store machine summary for a completed run."""
+    # Fetch run with all data
+    run = await repositories.runs.get_run(session, run_id)
+    if not run:
+        return
+
+    # Fetch steps and artifacts
+    from ..repositories import steps as steps_repo
+    from ..repositories import artifacts as artifacts_repo
+
+    run_steps = await steps_repo.list_steps(session, run_id)
+    run_artifacts = await artifacts_repo.list_artifacts(session, run_id)
+
+    # Generate summary
+    summary = machine_summary_service.generate_machine_summary(
+        run=run,
+        steps=run_steps,
+        artifacts=run_artifacts,
+        workspace_path=workspace,
+    )
+
+    # Store as JSON
+    summary_json = json.dumps(summary)
+    await repositories.runs.update_run_summary(session, run_id, summary_json)
+    await session.flush()
 
 
 def _serialize_message_content(msg: dict[str, Any]) -> str:

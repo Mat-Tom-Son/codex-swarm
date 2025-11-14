@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -10,11 +12,26 @@ from ..config import settings
 from ..domains import get_domain_config
 from .codex_tool import codex_exec
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Swarm Runner", version="0.1.0")
 OPENAI_KEY = settings.openai_api_key or os.getenv("OPENAI_API_KEY")
 if OPENAI_KEY and not os.getenv("OPENAI_API_KEY"):
     os.environ["OPENAI_API_KEY"] = OPENAI_KEY
 USE_FAKE_SWARM = not OPENAI_KEY or os.getenv("CROSS_RUN_FAKE_SWARM") == "1"
+
+# DraftPunk requirement: Fail fast on missing auth in service mode
+# Check if we're in a non-TTY environment (service mode)
+IS_SERVICE_MODE = not sys.stdout.isatty()
+
+if IS_SERVICE_MODE and not USE_FAKE_SWARM and not OPENAI_KEY:
+    logger.error(
+        "FATAL: Running in service mode without OPENAI_API_KEY. "
+        "Set OPENAI_API_KEY environment variable or CROSS_RUN_OPENAI_API_KEY config. "
+        "Alternatively, set CROSS_RUN_FAKE_SWARM=1 for testing without OpenAI."
+    )
+    sys.exit(1)
+
 client = None if USE_FAKE_SWARM else Swarm()
 
 

@@ -6,8 +6,9 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![Rich CLI](https://img.shields.io/badge/cli-rich%20formatted-purple)]()
+[![DraftPunk Ready](https://img.shields.io/badge/DraftPunk-backend%20ready-orange)]()
 
-Codex-Swarm is a domain-aware agent memory system that learns from successful automation workflows and automatically reuses proven patterns in future tasks. Now with **beautiful CLI**, **real-time progress tracking**, and **powerful management tools**!
+Codex-Swarm is a domain-aware agent memory system that learns from successful automation workflows and automatically reuses proven patterns in future tasks. Now with **beautiful CLI**, **real-time progress tracking**, **powerful management tools**, and **DraftPunk integration**!
 
 ---
 
@@ -381,6 +382,56 @@ export CROSS_RUN_FAKE_SWARM=1
 # Run completely offline
 ./run.sh crossrun services
 ```
+
+---
+
+## 🔌 DraftPunk Integration
+
+Codex-Swarm can be used as a **clean, minimal backend** for DraftPunk, providing document workflows and automation services via a stable HTTP API.
+
+### Quick Start for DraftPunk
+
+```python
+from draftpunk_client import CodexSwarmClient
+
+# Initialize client
+client = CodexSwarmClient(base_url="http://localhost:5050")
+
+# Start a document writing task
+run = client.start_run(
+    project_id="my-workspace",
+    instructions="Write a technical report on API design patterns",
+    task_type="document_writing"
+)
+
+# Poll for completion
+while run.status in ("queued", "running"):
+    run = client.get_run(run.run_id)
+    print(f"Progress: {run.progress}%")
+
+# Get results
+if run.machine_summary:
+    print(f"Output: {run.machine_summary.primary_artifact}")
+    content = client.get_file_text(run.run_id, run.machine_summary.primary_artifact)
+```
+
+### DraftPunk-Specific Features
+
+- **📊 Machine Summary** - Structured, LLM-friendly output summaries
+- **🎯 Task Types** - `document_writing`, `document_analysis`, `document_processing`
+- **🛡️ Error Tracking** - Structured `errors` array with classifications
+- **📁 File Management** - List and download workspace files
+- **🔒 Non-Interactive** - Fail-fast on misconfiguration, no prompts
+- **📈 Progress Tracking** - Real-time progress percentage (0-100%)
+
+### Documentation
+
+See **[docs/DRAFTPUNK_INTEGRATION.md](docs/DRAFTPUNK_INTEGRATION.md)** for:
+- Complete API reference
+- Client library usage
+- Error handling patterns
+- Service mode configuration
+- Troubleshooting guide
 
 ---
 

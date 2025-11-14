@@ -14,16 +14,32 @@ def init_db(path: Path | None = None) -> None:
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        inspector = inspect(conn)
+
         # Migration: Add workspace_from_run_id to runs table
-        columns = {col["name"] for col in inspect(conn).get_columns("runs")}
+        columns = {col["name"] for col in inspector.get_columns("runs")}
         if "workspace_from_run_id" not in columns:
             conn.execute(text("ALTER TABLE runs ADD COLUMN workspace_from_run_id VARCHAR"))
             columns.add("workspace_from_run_id")
         if "codex_thread_id" not in columns:
             conn.execute(text("ALTER TABLE runs ADD COLUMN codex_thread_id VARCHAR"))
+            columns.add("codex_thread_id")
+
+        # Migration: DraftPunk integration fields
+        if "progress" not in columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN progress INTEGER NOT NULL DEFAULT 0"))
+            columns.add("progress")
+        if "had_errors" not in columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN had_errors BOOLEAN NOT NULL DEFAULT 0"))
+            columns.add("had_errors")
+        if "errors_json" not in columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN errors_json TEXT"))
+            columns.add("errors_json")
+        if "machine_summary_json" not in columns:
+            conn.execute(text("ALTER TABLE runs ADD COLUMN machine_summary_json TEXT"))
+            columns.add("machine_summary_json")
 
         # Migration: Ensure task_type/domain_config exist on projects table
-        inspector = inspect(conn)
         project_columns = {col["name"] for col in inspector.get_columns("projects")}
         if "task_type" not in project_columns:
             if "project_type" in project_columns:

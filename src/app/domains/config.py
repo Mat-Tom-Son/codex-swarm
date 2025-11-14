@@ -11,7 +11,15 @@ Each domain defines:
 from dataclasses import dataclass
 from typing import Literal
 
-TaskType = Literal["code", "research", "writing", "data_analysis", "document_processing"]
+TaskType = Literal[
+    "code",
+    "research",
+    "writing",
+    "data_analysis",
+    "document_processing",
+    "document_writing",
+    "document_analysis",
+]
 
 
 @dataclass
@@ -65,6 +73,22 @@ DOMAIN_CONFIGS: dict[TaskType, DomainConfig] = {
         instruction_template="document_mode.txt",
         pattern_extractor="DocumentExtractor",
         primary_artifact_types=["docx", "pdf", "markdown", "codex-jsonl"],
+        workspace_required=True,
+    ),
+    "document_writing": DomainConfig(
+        name="Document Writing",
+        description="Creating structured documents, reports, and formatted content",
+        instruction_template="writing_mode.txt",
+        pattern_extractor="WritingExtractor",
+        primary_artifact_types=["markdown", "docx", "pdf", "codex-jsonl"],
+        workspace_required=True,
+    ),
+    "document_analysis": DomainConfig(
+        name="Document Analysis",
+        description="Analyzing, extracting insights from, and summarizing documents",
+        instruction_template="research_mode.txt",
+        pattern_extractor="ResearchExtractor",
+        primary_artifact_types=["markdown", "json", "codex-jsonl"],
         workspace_required=True,
     ),
 }
